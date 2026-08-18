@@ -1,0 +1,6 @@
+# ローカルの作業用ファイル（公開しない）
+server.cjs
+compare.html
+shots/
+node_modules/
+.vercel

@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>引っ越し段取り表</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+        body { font-family: 'Noto Sans JP', sans-serif; background-color: #eef2f7; }
+        [v-cloak] { display: none !important; }
+
+        :root { --left-col-width: 84px; }
+
+        /* 印刷用設定（A4横1枚にフィットさせる） */
+        @media print {
+            .no-print { display: none !important; }
+            body, html, #app {
+                background-color: #ffffff !important;
+                background: none !important;
+                margin: 0 !important; padding: 0 !important;
+            }
+            @page { size: A4 landscape; margin: 5mm; }
+            .print-area-wrapper {
+                width: 100% !important;
+                padding: 0 !important; margin: 0 !important;
+                box-shadow: none !important; border: none !important;
+            }
+            .page-break { page-break-after: avoid !important; page-break-inside: avoid !important; }
+            * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+
+        /* 画面上のプレビュー枠（A4横の比率に固定） */
+        .print-area-wrapper {
+            width: 1122px;
+            min-height: 793px;
+            background: #fff;
+            box-shadow: 0 10px 25px rgba(30,58,138,0.12);
+            border: 1px solid #cbd5e1;
+            display: flex; flex-direction: column;
+            padding: 24px; margin-bottom: 40px;
+            transform-origin: top center;
+        }
+
+        .schedule-row-block {
+            display: flex; flex-direction: column;
+            border: 1px solid #94a3b8;
+            margin-bottom: 12px; background: #fff;
+            flex-grow: 1;
+        }
+        .schedule-row-block:last-child { margin-bottom: 0; }
+
+        .calendar-row { position: relative; flex-grow: 1; display: flex; flex-direction: column; }
+
+        .common-row { display: flex; width: 100%; border-bottom: 1px solid #cbd5e1; background-color: #fff; }
+        .lane-container {
+            display: flex; width: 100%; position: relative;
+            border-bottom: 1px dashed #cbd5e1;
+            flex-grow: 1;
+        }
+        .lane-container:last-child { border-bottom: none; }
+
+        .fixed-left-col {
+            flex: 0 0 var(--left-col-width); width: var(--left-col-width);
+            display: flex; align-items: center; justify-content: center;
+            border-right: 1px solid #94a3b8;
+            z-index: 30; text-align: center; font-weight: bold; padding: 2px;
+            background-color: #fff;
+        }
+
+        .fluid-right-col, .lane-content { flex: 1; width: 0; position: relative; display: flex; }
+
+        /* 背景色（元の緑系 → 青系へ変更） */
+        .bg-year { background-color: #c7d2fe; font-size: 0.7rem; }
+        .bg-week { background-color: #f1f5f9; font-size: 0.6rem; }
+        .bg-lane { background-color: #f8fafc; font-size: 0.65rem; line-height: 1.2; }
+
+        .lane-grid-bg {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            display: flex; z-index: 0; pointer-events: none;
+        }
+        .grid-month { flex: 1; border-right: 1px solid #94a3b8; height: 100%; display: flex; }
+        .grid-month:last-child { border-right: none; }
+        .grid-week { flex: 1; border-right: 1px dashed #d1d5db; height: 100%; display: flex; align-items: center; justify-content: center; }
+        .grid-week:last-child { border-right: none; }
+
+        .event-bar {
+            position: absolute; border-radius: 3px;
+            font-weight: bold;
+            white-space: pre-line; word-wrap: break-word;
+            text-align: center; display: flex; align-items: center; justify-content: center;
+            padding: 1px; height: 28px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.8);
+            cursor: pointer; z-index: 10; user-select: none; color: #1f2937;
+            border: 1px solid rgba(0,0,0,0.1);
+            transition: transform 0.1s, z-index 0.1s;
+            overflow: hidden;
+        }
+        .event-bar.is-long {
+            justify-content: flex-start; text-align: left; padding-left: 6px;
+            opacity: 0.95; white-space: nowrap; z-index: 10; line-height: 28px;
+        }
+        .event-bar:not(.is-long) { z-index: 20; }
+        .event-bar:not(.is-long):hover {
+            z-index: 100; transform: scale(1.05); overflow: visible; height: auto; min-height: 28px;
+        }
+        .event-bar.is-long:hover { z-index: 100; transform: scale(1.01); }
+
+        .resize-handle {
+            position: absolute; right: 0; top: 0; bottom: 0; width: 10px; cursor: col-resize;
+            background: rgba(255,255,255,0.4); border-left: 1px solid rgba(0,0,0,0.1);
+        }
+        .resize-handle:hover { background: rgba(255,255,255,0.8); }
+
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.5); z-index: 9999;
+            display: flex; justify-content: center;
+        }
+        .modal-content {
+            background: white; padding: 20px; border-radius: 8px;
+            width: 90%; max-width: 500px; margin-top: 50px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            max-height: 90vh; overflow-y: auto;
+        }
+
+        .easy-mode-active .event-bar { box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.45); }
+        .color-btn { width: 20px; height: 20px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
+        .color-btn.selected { border-color: #333; transform: scale(1.2); }
+
+        .action-btn {
+            display: flex; align-items: center; gap: 4px;
+            padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold;
+            transition: all 0.2s; white-space: nowrap; box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        .action-btn:hover { transform: translateY(-1px); }
+
+        .sticky-header {
+            position: sticky; top: 0; z-index: 50;
+            background: rgba(255, 255, 255, 0.98);
+            border-bottom: 2px solid #4f46e5;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            padding: 8px;
+        }
+
+        .compact-input {
+            border: 1px solid #d1d5db; border-radius: 4px;
+            padding: 2px 4px; font-size: 12px; width: 100%;
+        }
+        input[type="date"] { cursor: pointer; }
+    </style>
+</head>
+<body class="text-sm">
+
+<div id="app" class="pb-20" :class="isEasyMode ? 'easy-mode-active' : ''" v-cloak>
+
+    <div class="no-print sticky-header" v-show="!isPlain">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div class="flex items-center gap-3">
+                <h1 class="text-lg font-bold text-indigo-700 flex items-center gap-2">
+                    <i class="fas fa-truck-moving"></i> 引っ越し段取り表
+                </h1>
+                <div class="flex bg-gray-100 rounded p-0.5 border">
+                    <button class="px-3 py-1 text-xs font-bold text-gray-600 hover:bg-white rounded disabled:opacity-30" @click="undo" :disabled="historyStep <= 0">
+                        <i class="fas fa-undo"></i> 戻す
+                    </button>
+                    <button class="px-3 py-1 text-xs font-bold text-gray-600 hover:bg-white rounded disabled:opacity-30" @click="redo" :disabled="historyStep >= history.length - 1">
+                        <i class="fas fa-redo"></i> 進む
+                    </button>
+                </div>
+                <button @click="isEasyMode = !isEasyMode"
+                    class="action-btn border"
+                    :class="isEasyMode ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-gray-600 border-gray-300'">
+                    <i class="fas fa-link"></i> {{ isEasyMode ? '連動ON' : '連動OFF' }}
+                </button>
+                <span class="text-[10px] text-gray-500 hidden md:inline">連動ONで予定を動かすと、後ろの予定が全部ついてきます</span>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <div class="flex items-center gap-1 bg-indigo-50 px-2 py-1 rounded border border-indigo-200 shadow-sm mr-2">
+                    <span class="text-xs font-bold text-indigo-800">倍率:</span>
+                    <button @click.stop="printScale = Math.max(30, printScale - 5)" class="bg-white hover:bg-gray-200 text-gray-800 px-2 rounded text-xs font-bold border border-gray-300">-</button>
+                    <span class="text-xs font-bold w-8 text-center text-indigo-900">{{ printScale }}%</span>
+                    <button @click.stop="printScale = Math.min(150, printScale + 5)" class="bg-white hover:bg-gray-200 text-gray-800 px-2 rounded text-xs font-bold border border-gray-300">+</button>
+                </div>
+                <button @click="triggerLoad" class="action-btn bg-gray-600 text-white hover:bg-gray-700">
+                    <i class="fas fa-folder-open"></i> 読込
+                </button>
+                <input type="file" ref="fileInput" class="hidden" accept=".json" @change="loadFromFile">
+                <button @click="saveToFile" class="action-btn bg-orange-600 text-white hover:bg-orange-700">
+                    <i class="fas fa-save"></i> 保存
+                </button>
+                <button @click="printPDF" class="action-btn bg-indigo-600 text-white hover:bg-indigo-700">
+                    <i class="fas fa-print"></i> 印刷
+                </button>
+            </div>
+        </div>
+
+        <div class="flex flex-wrap items-end gap-3 bg-gray-50 p-2 rounded border border-gray-200">
+            <div class="flex flex-col gap-1 w-32">
+                <label class="text-[10px] font-bold text-gray-500">タイトル</label>
+                <input v-model="planTitle" type="text" class="compact-input">
+            </div>
+            <div class="flex flex-col gap-1 w-28">
+                <label class="text-[10px] font-bold text-indigo-600">引っ越し日 ★</label>
+                <input v-model="moveDate" type="date" class="compact-input cursor-pointer font-bold text-indigo-700" onclick="this.showPicker()" @change="recalcEvents">
+            </div>
+            <div class="flex flex-col gap-1 w-24">
+                <label class="text-[10px] font-bold text-gray-500">今の住まい</label>
+                <select v-model="homeType" @change="recalcEvents" class="compact-input">
+                    <option value="rent">賃貸</option>
+                    <option value="own">持ち家(売却)</option>
+                </select>
+            </div>
+            <div class="flex flex-col gap-1 w-24">
+                <label class="text-[10px] font-bold text-gray-500">世帯</label>
+                <select v-model="household" @change="recalcEvents" class="compact-input">
+                    <option value="single">単身</option>
+                    <option value="family">家族(子あり)</option>
+                </select>
+            </div>
+            <div class="flex flex-col gap-1 w-20">
+                <label class="text-[10px] font-bold text-indigo-500">1行の月数</label>
+                <select v-model.number="monthsPerRow" class="compact-input">
+                    <option value="2">2ヶ月</option><option value="3">3ヶ月</option>
+                    <option value="4">4ヶ月</option><option value="5">5ヶ月</option>
+                </select>
+            </div>
+            <div class="flex flex-col gap-1 w-20">
+                <label class="text-[10px] font-bold text-indigo-500">全期間</label>
+                <select v-model.number="totalMonths" class="compact-input">
+                    <option value="3">3ヶ月</option><option value="4">4ヶ月</option>
+                    <option value="5">5ヶ月</option><option value="6">6ヶ月</option>
+                </select>
+            </div>
+
+            <div class="flex items-center gap-1 pl-2 border-l border-gray-300 ml-1">
+                <input v-model="newEvent.name" type="text" placeholder="追加予定名" class="compact-input w-24">
+                <input v-model="newEvent.date" type="date" class="compact-input w-24 cursor-pointer" onclick="this.showPicker()">
+                <div class="flex gap-0.5">
+                    <div v-for="c in fixedPalette.slice(0,5)" :key="c" class="color-btn" :style="{backgroundColor:c}" @click="newEvent.color=c" :class="{selected:newEvent.color===c}"></div>
+                </div>
+                <select v-model="newEvent.category" class="compact-input w-20">
+                    <option value="procedure">手続き</option><option value="lifeline">ライフライン</option>
+                    <option value="living">荷造り</option><option value="money">お金</option>
+                </select>
+                <label class="text-[10px] font-bold flex items-center cursor-pointer whitespace-nowrap">
+                    <input type="checkbox" v-model="newEvent.isLong" class="mr-0.5">期間設定
+                </label>
+                <button @click="addCustomEvent" class="action-btn bg-indigo-600 text-white hover:bg-indigo-700">追加</button>
+            </div>
+        </div>
+    </div>
+
+    <div v-if="editingEvent" class="no-print modal-overlay" @click.self="closeModal">
+        <div class="modal-content space-y-4">
+            <h3 class="font-bold text-lg border-b pb-2">✏️ 予定の編集</h3>
+            <div>
+                <label class="block text-xs font-bold text-gray-500">予定名 (改行でレイアウトを調整できます)</label>
+                <textarea v-model="editingEvent.name" class="w-full border p-2 rounded h-16 text-sm font-bold"></textarea>
+            </div>
+            <div class="bg-yellow-50 p-2 rounded border border-yellow-200">
+                <label class="block text-xs font-bold text-yellow-800 mb-1">詳細メモ</label>
+                <textarea v-model="editingEvent.todo" class="w-full border p-2 rounded h-20 text-sm bg-white"></textarea>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500">日付</label>
+                    <input v-model="editingEvent.date" type="date" class="w-full border p-2 rounded cursor-pointer" onclick="this.showPicker()">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500">色</label>
+                    <div class="flex gap-1 flex-wrap">
+                        <div v-for="c in fixedPalette" :key="c" class="color-btn" :style="{backgroundColor:c}" :class="{selected:editingEvent.color===c}" @click="editingEvent.color=c"></div>
+                    </div>
+                </div>
+            </div>
+            <div v-if="editingEvent.isLong">
+                <label class="block text-xs font-bold text-gray-500">終了日</label>
+                <input v-model="editingEvent.endDate" type="date" class="w-full border p-2 rounded cursor-pointer" onclick="this.showPicker()">
+            </div>
+            <div class="flex justify-end gap-2 pt-4 border-t">
+                <button @click="deleteEvent" class="bg-red-100 text-red-600 font-bold py-2 px-4 rounded text-xs">削除</button>
+                <button @click="closeModal" class="bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded text-xs">キャンセル</button>
+                <button @click="saveEvent" class="bg-indigo-600 text-white font-bold py-2 px-4 rounded text-xs">決定</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="w-full overflow-x-auto pt-4 flex justify-center">
+        <div class="print-area-wrapper page-break" :style="{ zoom: printScale / 100 }">
+
+            <div class="flex justify-between items-end border-b-2 border-indigo-600 pb-2 mb-2">
+                <h1 class="text-2xl font-bold tracking-tight">{{ planTitle }}</h1>
+                <div class="text-sm text-right">
+                    <p class="font-bold">引っ越し日: {{ moveDateStr }}</p>
+                    <p class="text-xs text-gray-500 mt-1">※日数は目安です。期限は自治体・契約内容で確認してください。</p>
+                </div>
+            </div>
+
+            <div class="flex flex-col h-full flex-grow pb-1">
+                <div v-for="(rowMonths, rowIndex) in chunkedMonths" :key="rowIndex" class="schedule-row-block">
+
+                    <div class="common-row">
+                        <div class="fixed-left-col bg-year border-b border-gray-300">年月</div>
+                        <div class="fluid-right-col border-b border-gray-300">
+                            <div v-for="month in rowMonths" :key="month.key" class="grid-month flex items-center justify-center font-bold text-xs text-gray-800">
+                                {{ month.label }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="common-row">
+                        <div class="fixed-left-col bg-week border-b border-gray-300">週</div>
+                        <div class="fluid-right-col border-b border-gray-300">
+                            <div v-for="month in rowMonths" :key="'w-'+month.key" class="grid-month">
+                                <div class="grid-week text-[9px] text-gray-600">1</div>
+                                <div class="grid-week text-[9px] text-gray-600">2</div>
+                                <div class="grid-week text-[9px] text-gray-600">3</div>
+                                <div class="grid-week text-[9px] text-gray-600">4</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="calendar-row"
+                         @mousemove="handleDragMove($event, rowIndex)"
+                         @mouseup="stopDrag"
+                         @mouseleave="stopDrag">
+
+                        <div class="w-full flex flex-col select-none flex-grow">
+                            <div v-for="lane in lanes" :key="lane.id" class="lane-container"
+                                 :style="{ minHeight: getLaneHeight(lane.id, rowIndex) + 'px' }">
+
+                                <div class="fixed-left-col bg-lane" :class="lane.textColorClass">
+                                    <span v-html="lane.label"></span>
+                                </div>
+
+                                <div class="lane-content fluid-right-col">
+                                    <div class="lane-grid-bg">
+                                        <div v-for="month in rowMonths" :key="'bg-'+month.key" class="grid-month">
+                                            <div class="grid-week"></div><div class="grid-week"></div><div class="grid-week"></div><div class="grid-week"></div>
+                                        </div>
+                                    </div>
+
+                                    <template v-for="event in events" :key="event.id">
+                                        <div v-if="isVisibleInRow(event, rowMonths) && event.category === lane.id"
+                                             class="event-bar"
+                                             :class="{ 'is-long': event.isLong }"
+                                             :style="getMergedStyle(event, rowMonths)"
+                                             @mousedown.stop="startDrag($event, event, rowIndex)"
+                                             @click.stop="openEditModal(event)">
+                                            {{ event.name }}
+                                            <div v-if="event.isLong" class="resize-handle" @mousedown.stop="startResize($event, event, rowIndex)"></div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div class="no-print text-center text-xs text-gray-400 pb-4" v-show="!isPlain">
+        個人が作ったデモです。バーはドラッグで動かせます。クリックで編集できます。
+    </div>
+</div>
+
+<script>
+    const { createApp, ref, computed, onMounted, nextTick } = Vue;
+
+    createApp({
+        setup() {
+            const planTitle = ref('わが家の引っ越し 段取り表');
+            const homeType = ref('rent');
+            const household = ref('single');
+            const isEasyMode = ref(true);
+            const today = new Date();
+
+            // 引っ越し日の初期値: 今日から45日後
+            const defaultMove = new Date(today);
+            defaultMove.setDate(today.getDate() + 45);
+            const moveDate = ref(defaultMove.toISOString().substr(0, 10));
+
+            const moveDateStr = computed(() => {
+                const d = new Date(moveDate.value);
+                if (isNaN(d.getTime())) return '';
+                return d.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' });
+            });
+
+            const printScale = ref(90);
+            const events = ref([]);
+            const fileInput = ref(null);
+            const monthsPerRow = ref(4);
+            const totalMonths = ref(4);
+
+            // URLのクエリで初期状態を指定できる
+            // 例: ?move=2026-10-16&household=family&scale=110&plain=1
+            const q = new URLSearchParams(location.search);
+            if (q.get('move')) moveDate.value = q.get('move');
+            if (q.get('home')) homeType.value = q.get('home');
+            if (q.get('household')) household.value = q.get('household');
+            if (q.get('title')) planTitle.value = q.get('title');
+            if (q.get('scale')) printScale.value = Number(q.get('scale'));
+            if (q.get('months')) totalMonths.value = Number(q.get('months'));
+            if (q.get('perrow')) monthsPerRow.value = Number(q.get('perrow'));
+            // plain=1 で操作パネルを隠す（スクリーンショット用）
+            const isPlain = ref(q.get('plain') === '1');
+
+            const fixedPalette = [
+                '#fca5a5', '#fdba74', '#fde047', '#86efac', '#5eead4',
+                '#93c5fd', '#a5b4fc', '#d8b4fe', '#f0abfc', '#d1d5db'
+            ];
+
+            const newEvent = ref({ name: '', date: today.toISOString().substr(0, 10), category: 'living', color: fixedPalette[5], isLong: false });
+            const editingEvent = ref(null);
+
+            // 同じ日に連動して動くペア
+            const PAIRS = [
+                ['引っ越し当日', '業者へ支払い'],
+                ['業者を確定', '新居の初期費用']
+            ];
+
+            const history = ref([]);
+            const historyStep = ref(-1);
+
+            const recordHistory = () => {
+                if (historyStep.value < history.length - 1) {
+                    history.value = history.value.slice(0, historyStep.value + 1);
+                }
+                history.value.push(JSON.stringify(events.value));
+                historyStep.value++;
+            };
+            const undo = () => {
+                if (historyStep.value > 0) {
+                    historyStep.value--;
+                    events.value = JSON.parse(history.value[historyStep.value]);
+                }
+            };
+            const redo = () => {
+                if (historyStep.value < history.length - 1) {
+                    historyStep.value++;
+                    events.value = JSON.parse(history.value[historyStep.value]);
+                }
+            };
+
+            const lanes = [
+                { id: 'procedure', label: '役所<br>手続き', textColorClass: 'text-indigo-800' },
+                { id: 'lifeline', label: '電気ガス水道<br>ネット', textColorClass: 'text-teal-700' },
+                { id: 'living', label: '荷造り<br>暮らし', textColorClass: 'text-gray-700' },
+                { id: 'money', label: 'お金', textColorClass: 'text-amber-700' },
+            ];
+
+            const addDays = (dStr, days) => {
+                const d = new Date(dStr);
+                d.setDate(d.getDate() + days);
+                return d.toISOString().substr(0, 10);
+            };
+
+            // ★ ここが核: 引っ越し日を1つ入れると、前後の段取りが全部並ぶ
+            const recalcEvents = () => {
+                history.value = []; historyStep.value = -1;
+                const D = moveDate.value;
+                const list = [];
+                let idCounter = 1;
+                const push = (name, d, cat, color=null, end=null, todo='') => {
+                    list.push({
+                        id: idCounter++, name: name, date: d, endDate: end, category: cat,
+                        isLong: !!end, isCustom: false, color: color || fixedPalette[5], todo: todo
+                    });
+                };
+
+                const C_PROC = fixedPalette[6];   // 紫: 手続き
+                const C_LIFE = fixedPalette[4];   // 青緑: ライフライン
+                const C_LIVE = fixedPalette[5];   // 青: 暮らし
+                const C_MONEY = fixedPalette[2];  // 黄: お金
+                const C_MAIN = fixedPalette[0];   // 赤: 当日
+                const C_LONG = fixedPalette[7];   // 薄紫: 期間
+
+                // --- 役所・手続き ---
+                if (homeType.value === 'rent') {
+                    push('解約通知\n(大家さん)', addDays(D, -30), 'procedure', C_PROC, null, '契約書で通知期限を確認。1ヶ月前が多いが2ヶ月前の物件もある');
+                } else {
+                    push('売却の\n相談開始', addDays(D, -60), 'procedure', C_PROC, null, '不動産会社に査定を依頼');
+                    push('引き渡し\n(旧居)', addDays(D, 30), 'procedure', C_PROC);
+                }
+                push('転出届', addDays(D, -14), 'procedure', C_PROC, null, '本人確認書類。マイナンバーカードがあればオンラインで済む場合も');
+                push('転入届', addDays(D, 14), 'procedure', C_PROC, null, '引っ越しから14日以内');
+                push('免許証の\n住所変更', addDays(D, 21), 'procedure', C_PROC, null, '警察署か運転免許センター');
+                if (household.value === 'family') {
+                    push('転校の\n手続き', addDays(D, -21), 'procedure', C_PROC, null, '在学証明書をもらう');
+                    push('児童手当の\n住所変更', addDays(D, 14), 'procedure', C_PROC);
+                }
+
+                // --- ライフライン ---
+                push('ネット回線の\n移転申込', addDays(D, -30), 'lifeline', C_LIFE, null, '工事が混むので一番先に。繁忙期は1ヶ月待ちもある');
+                push('電気・水道の\n停止と開始', addDays(D, -14), 'lifeline', C_LIFE, null, 'Webで新旧まとめて手続きできる会社が多い');
+                push('ガスの停止と\n開栓予約', addDays(D, -14), 'lifeline', C_LIFE, null, '開栓は立ち会いが要る');
+                push('郵便の\n転送届', addDays(D, -7), 'lifeline', C_LIFE, null, 'Webで完結。反映まで数日かかる');
+                push('ガス開栓\n立ち会い', D, 'lifeline', C_LIFE);
+
+                // --- 荷造り・暮らし ---
+                push('見積もり期間', addDays(D, -45), 'living', C_LONG, addDays(D, -30), '2〜3社に相見積もり');
+                push('業者を確定', addDays(D, -30), 'living', C_LIVE);
+                push('荷造り期間', addDays(D, -21), 'living', C_LONG, addDays(D, -1), '使わない部屋から詰める');
+                push('不用品の\n処分', addDays(D, -14), 'living', C_LIVE, null, '粗大ごみは予約制。直前だと間に合わない');
+                push('引っ越し当日', D, 'living', C_MAIN, null, '貴重品は自分で運ぶ');
+                push('荷ほどき', D, 'living', C_LONG, addDays(D, 14));
+
+                // --- お金 ---
+                push('新居の\n初期費用', addDays(D, -30), 'money', C_MONEY, null, '契約時にまとめて支払い');
+                push('業者へ支払い', D, 'money', C_MONEY, null, '当日現金の会社もある。事前に確認');
+                if (homeType.value === 'rent') {
+                    push('敷金の精算', addDays(D, 30), 'money', C_MONEY, null, '退去立ち会いから1〜2ヶ月後が目安');
+                }
+
+                const customs = events.value.filter(e => e.isCustom);
+                events.value = [...list, ...customs];
+                recordHistory();
+            };
+
+            const getGridIndex = (timestamp, rowMonths) => {
+                const d = new Date(timestamp);
+                const y = d.getFullYear();
+                const m = d.getMonth();
+                const date = d.getDate();
+
+                let monthIndex = rowMonths.findIndex(rm => {
+                    const rmD = new Date(rm.startTs);
+                    return rmD.getFullYear() === y && rmD.getMonth() === m;
+                });
+
+                if (monthIndex === -1) {
+                    if (timestamp < rowMonths[0].startTs) return -1;
+                    if (timestamp > rowMonths[rowMonths.length - 1].endTs) return rowMonths.length * 4;
+                }
+
+                let weekIndex = 0;
+                if (date <= 7) weekIndex = 0;
+                else if (date <= 14) weekIndex = 1;
+                else if (date <= 21) weekIndex = 2;
+                else weekIndex = 3;
+
+                return monthIndex * 4 + weekIndex;
+            };
+
+            const getGridInfo = (event, rowMonths) => {
+                const startGrid = getGridIndex(new Date(event.date).getTime(), rowMonths);
+                let endGrid = startGrid;
+                if (event.isLong && event.endDate) {
+                    endGrid = getGridIndex(new Date(event.endDate).getTime(), rowMonths);
+                }
+                return { startGrid, endGrid };
+            };
+
+            const getLayoutInfo = (laneEvents, rowMonths) => {
+                const evs = laneEvents.map(e => ({ ...e, ...getGridInfo(e, rowMonths) }));
+                const longEvents = evs.filter(e => e.isLong);
+                const normalEvents = evs.filter(e => !e.isLong);
+
+                const packEvents = (evList) => {
+                    evList.sort((a, b) => a.startGrid - b.startGrid);
+                    let finalTracks = [];
+                    const result = {};
+                    evList.forEach(ev => {
+                        let trackIndex = -1;
+                        for (let i = 0; i < finalTracks.length; i++) {
+                            if (finalTracks[i] < ev.startGrid) { trackIndex = i; break; }
+                        }
+                        if (trackIndex === -1) { trackIndex = finalTracks.length; finalTracks.push(-1); }
+                        finalTracks[trackIndex] = ev.endGrid;
+                        result[ev.id] = trackIndex;
+                    });
+                    return { map: result, count: finalTracks.length };
+                };
+
+                const longResult = packEvents(longEvents);
+                const normalResult = packEvents(normalEvents);
+
+                return {
+                    map: { ...longResult.map, ...normalResult.map },
+                    maxLevels: Math.max(longResult.count, normalResult.count)
+                };
+            }
+
+            const chunkedMonths = computed(() => {
+                // 引っ越し日の2ヶ月前の月から表を始める
+                const s = new Date(addDays(moveDate.value, -60));
+                const startMonth = new Date(s.getFullYear(), s.getMonth(), 1);
+                const allMonths = [];
+                for(let i=0; i<totalMonths.value; i++) {
+                    const m = new Date(startMonth);
+                    m.setMonth(startMonth.getMonth() + i);
+                    allMonths.push({
+                        key: m.getFullYear() + '-' + (m.getMonth()+1),
+                        label: m.toLocaleDateString('ja-JP', { year: 'numeric', month: 'short' }),
+                        startTs: new Date(m.getFullYear(), m.getMonth(), 1).getTime(),
+                        endTs: new Date(m.getFullYear(), m.getMonth() + 1, 0).getTime()
+                    });
+                }
+                const chunks = [];
+                for (let i = 0; i < allMonths.length; i += monthsPerRow.value) {
+                    chunks.push(allMonths.slice(i, i + monthsPerRow.value));
+                }
+                return chunks;
+            });
+
+            const isVisibleInRow = (event, rowMonths) => {
+                const { startGrid, endGrid } = getGridInfo(event, rowMonths);
+                const totalGrids = rowMonths.length * 4;
+                return startGrid < totalGrids && endGrid >= 0;
+            };
+
+            const getDynamicStyle = (event) => {
+                let fontSize = 8;
+                let lineHeight = 1.1;
+                if (event.name && !event.isLong) {
+                    const lines = event.name.split('\n');
+                    const maxLineLen = Math.max(...lines.map(l => l.length));
+                    const numLines = lines.length;
+                    if (numLines >= 3 || maxLineLen >= 6) { fontSize = 6.5; lineHeight = 1.0; }
+                    else if (numLines >= 2 || maxLineLen >= 5) { fontSize = 7.5; lineHeight = 1.05; }
+                }
+                return { fontSize: fontSize + 'px', lineHeight: lineHeight };
+            };
+
+            const getStackedStyle = (event, rowMonths) => {
+                const { startGrid, endGrid } = getGridInfo(event, rowMonths);
+                const totalGrids = rowMonths.length * 4;
+
+                const clampedStartGrid = Math.max(0, startGrid);
+                const clampedEndGrid = Math.min(totalGrids - 1, endGrid);
+                if (clampedStartGrid >= totalGrids || clampedEndGrid < 0) return { display: 'none' };
+
+                let left = (clampedStartGrid / totalGrids) * 100;
+                let width = ((clampedEndGrid - clampedStartGrid + 1) / totalGrids) * 100;
+
+                const siblings = events.value.filter(e => e.category === event.category && isVisibleInRow(e, rowMonths));
+                const { map } = getLayoutInfo(siblings, rowMonths);
+                const level = map[event.id] || 0;
+
+                const barH = 28;
+                const margin = 4;
+                const top = level * (barH + margin) + margin;
+
+                return {
+                    left: `calc(${left}% + 2px)`,
+                    width: `calc(${width}% - 4px)`,
+                    top: top + 'px',
+                    height: barH + 'px',
+                    backgroundColor: event.color
+                };
+            };
+
+            const getMergedStyle = (event, rowMonths) => {
+                return { ...getStackedStyle(event, rowMonths), ...getDynamicStyle(event) };
+            };
+
+            const getLaneHeight = (categoryId, rowIndex) => {
+                const rowMonths = chunkedMonths.value[rowIndex];
+                if (!rowMonths) return 40;
+                const siblings = events.value.filter(e => e.category === categoryId && isVisibleInRow(e, rowMonths));
+                const minH = 36;
+                if (siblings.length === 0) return minH;
+                const { maxLevels } = getLayoutInfo(siblings, rowMonths);
+                return Math.max(minH, maxLevels * 32 + 8);
+            };
+
+            const saveToFile = async () => {
+                const data = {
+                    planTitle: planTitle.value,
+                    moveDate: moveDate.value,
+                    homeType: homeType.value,
+                    household: household.value,
+                    events: events.value
+                };
+                const jsonStr = JSON.stringify(data, null, 2);
+
+                if (window.showSaveFilePicker) {
+                    try {
+                        const handle = await window.showSaveFilePicker({
+                            suggestedName: 'hikkoshi.json',
+                            types: [{ description: 'JSON File', accept: {'application/json': ['.json']} }],
+                        });
+                        const writable = await handle.createWritable();
+                        await writable.write(jsonStr);
+                        await writable.close();
+                        return;
+                    } catch (err) {}
+                }
+
+                const blob = new Blob([jsonStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = 'hikkoshi.json';
+                document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+            };
+
+            const triggerLoad = () => { fileInput.value.click(); };
+            const loadFromFile = (e) => {
+                const file = e.target.files[0]; if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    try {
+                        const data = JSON.parse(evt.target.result);
+                        planTitle.value = data.planTitle || '引っ越し段取り表';
+                        moveDate.value = data.moveDate;
+                        homeType.value = data.homeType || 'rent';
+                        household.value = data.household || 'single';
+                        if (data.events) { events.value = data.events; } else { recalcEvents(); }
+                        recordHistory();
+                        alert('データを読み込みました');
+                    } catch (err) { alert('読込失敗'); }
+                };
+                reader.readAsText(file); e.target.value = '';
+            };
+
+            const addCustomEvent = () => {
+                if (!newEvent.value.name) return;
+                const end = newEvent.value.isLong ? addDays(newEvent.value.date, 7) : null;
+                events.value.push({
+                    id: Date.now(), name: newEvent.value.name, date: newEvent.value.date,
+                    category: newEvent.value.category, color: newEvent.value.color,
+                    isCustom: true, isLong: newEvent.value.isLong, endDate: end, todo: ''
+                });
+                recordHistory();
+                newEvent.value.name = '';
+            };
+            const openEditModal = (event) => { if (hasMoved) return; editingEvent.value = JSON.parse(JSON.stringify(event)); };
+            const closeModal = () => { editingEvent.value = null; };
+            const saveEvent = () => {
+                if (!editingEvent.value) return;
+                const idx = events.value.findIndex(e => e.id === editingEvent.value.id);
+                if (idx !== -1) { events.value[idx] = { ...editingEvent.value }; }
+                recordHistory();
+                closeModal();
+            };
+            const deleteEvent = () => {
+                if (!editingEvent.value) return;
+                events.value = events.value.filter(e => e.id !== editingEvent.value.id);
+                recordHistory();
+                closeModal();
+            };
+
+            const isDragging = ref(false); const isResizing = ref(false);
+            const dragTarget = ref(null); const dragStartX = ref(0);
+            const dragOriginalDate = ref(null);
+            const dragSnapshot = ref({}); let hasMoved = false;
+
+            const startDrag = (e, event, rowIndex) => {
+                if(isResizing.value) return;
+                isDragging.value = true; hasMoved = false; dragTarget.value = event;
+                dragStartX.value = e.clientX;
+                dragOriginalDate.value = new Date(event.date).getTime();
+                const rowEl = e.target.closest('.calendar-row');
+                if(!rowEl) return;
+                const rect = rowEl.getBoundingClientRect();
+                const rowDays = (new Date(chunkedMonths.value[rowIndex][chunkedMonths.value[rowIndex].length-1].endTs).getTime() - new Date(chunkedMonths.value[rowIndex][0].startTs).getTime()) / 86400000;
+                dragTarget.value.pixelsPerDay = rect.width / rowDays;
+
+                // 開始日と終了日の両方を記憶しておく（動かしている間ずっと基準にする）
+                const snap = {};
+                events.value.forEach(ev => {
+                    snap[ev.id] = new Date(ev.date).getTime();
+                    if (ev.endDate) snap[ev.id + '_end'] = new Date(ev.endDate).getTime();
+                });
+                dragSnapshot.value = snap;
+            };
+            const startResize = (e, event, rowIndex) => {
+                e.stopPropagation();
+                isResizing.value = true; dragTarget.value = event;
+                dragStartX.value = e.clientX;
+                dragOriginalDate.value = new Date(event.endDate).getTime();
+                const rowEl = e.target.closest('.calendar-row');
+                if(!rowEl) return;
+                const rect = rowEl.getBoundingClientRect();
+                const rowDays = (new Date(chunkedMonths.value[rowIndex][chunkedMonths.value[rowIndex].length-1].endTs).getTime() - new Date(chunkedMonths.value[rowIndex][0].startTs).getTime()) / 86400000;
+                dragTarget.value.pixelsPerDay = rect.width / rowDays;
+            };
+            const handleDragMove = (e, rowIndex) => {
+                if (!dragTarget.value) return;
+                const diffX = e.clientX - dragStartX.value;
+                if (Math.abs(diffX) > 3) hasMoved = true;
+                const diffDays = Math.round(diffX / dragTarget.value.pixelsPerDay);
+
+                if (isResizing.value) {
+                    const newTs = dragOriginalDate.value + (diffDays * 24 * 60 * 60 * 1000);
+                    if (newTs > new Date(dragTarget.value.date).getTime()) {
+                        dragTarget.value.endDate = new Date(newTs).toISOString().substr(0, 10);
+                    }
+                } else if (isDragging.value) {
+                    const daysMs = diffDays * 24 * 60 * 60 * 1000;
+                    const baseOriginalTs = dragSnapshot.value[dragTarget.value.id];
+                    const newDateStr = new Date(baseOriginalTs + daysMs).toISOString().substr(0, 10);
+
+                    dragTarget.value.date = newDateStr;
+
+                    // 期間バーは長さを保ったまま平行移動させる
+                    if (dragTarget.value.isLong && dragSnapshot.value[dragTarget.value.id + '_end']) {
+                        dragTarget.value.endDate = new Date(dragSnapshot.value[dragTarget.value.id + '_end'] + daysMs).toISOString().substr(0, 10);
+                    }
+
+                    let pairTarget = null;
+                    PAIRS.forEach(pair => {
+                        if (pair.includes(dragTarget.value.name.replace(/\n/g, ''))) {
+                            const partnerNameRaw = pair.find(n => n !== dragTarget.value.name.replace(/\n/g, ''));
+                            const partner = events.value.find(e => e.name.replace(/\n/g, '') === partnerNameRaw);
+                            if (partner) { partner.date = newDateStr; pairTarget = partner; }
+                        }
+                    });
+
+                    if (isEasyMode.value) {
+                        events.value.forEach(ev => {
+                            if (ev.id === dragTarget.value.id) return;
+                            if (pairTarget && ev.id === pairTarget.id) return;
+                            const myOriginalTs = dragSnapshot.value[ev.id];
+                            // 同じ日の予定も一緒に動かす（>= にしている理由）
+                            if (myOriginalTs >= baseOriginalTs) {
+                                ev.date = new Date(myOriginalTs + daysMs).toISOString().substr(0, 10);
+                                // 期間バーは長さを保ったまま平行移動させる
+                                const snapEnd = dragSnapshot.value[ev.id + '_end'];
+                                if (ev.isLong && snapEnd) {
+                                    ev.endDate = new Date(snapEnd + daysMs).toISOString().substr(0, 10);
+                                }
+                            }
+                        });
+                    }
+                }
+            };
+            const stopDrag = () => {
+                if (hasMoved || isResizing.value) { recordHistory(); }
+                setTimeout(() => { isDragging.value = false; isResizing.value = false; }, 50);
+                dragTarget.value = null;
+            };
+
+            const printPDF = () => { nextTick(() => window.print()); };
+
+            onMounted(() => { editingEvent.value = null; recalcEvents(); });
+
+            return {
+                planTitle, moveDate, homeType, household, isEasyMode, moveDateStr, newEvent, isPlain,
+                events, chunkedMonths, printScale, editingEvent, fileInput, lanes, fixedPalette,
+                monthsPerRow, totalMonths,
+                recalcEvents, addCustomEvent, openEditModal, closeModal, saveEvent, deleteEvent,
+                saveToFile, triggerLoad, loadFromFile, startDrag, startResize, handleDragMove, stopDrag,
+                isVisibleInRow, getMergedStyle, getLaneHeight, printPDF,
+                undo, redo, history, historyStep
+            };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>
